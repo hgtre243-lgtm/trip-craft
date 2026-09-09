@@ -44,3 +44,7 @@ bin/
 
 # OS
 .DS_Store
+
+# Docker runtime data — never commit live database/redis data directories
+docker/mysql_data/
+docker/redis_data/

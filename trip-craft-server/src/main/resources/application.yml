@@ -1,4 +1,5 @@
 server:
+  address: 0.0.0.0  # 监听所有地址
   port: 8080
 
 spring:
@@ -7,7 +8,8 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/trip_craft?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    # characterEncoding 是 Java 字符集名：Connector/J 将 UTF-8/utf8 与 MySQL 服务端的 utf8mb4 协商对接
+    url: jdbc:mysql://localhost:3306/trip_craft?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: root
     password: root
 
