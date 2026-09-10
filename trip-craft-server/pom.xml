@@ -20,6 +20,8 @@
     <properties>
         <java.version>21</java.version>
         <mybatis-plus.version>3.5.12</mybatis-plus.version>
+        <!-- 显式指定 Lombok 版本，1.18.40 是首个完整支持 JDK 25 的版本 -->
+        <lombok.version>1.18.40</lombok.version>
     </properties>
 
     <dependencies>
@@ -43,11 +45,11 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Lombok (version managed by Spring Boot parent) -->
+        <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <optional>true</optional>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 
