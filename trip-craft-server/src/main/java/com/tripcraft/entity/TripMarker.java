@@ -18,6 +18,12 @@ public class TripMarker {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    /** 省份 */
+    private String province;
+
+    /** 城市 */
+    private String city;
+
     /** 标记地点名称 */
     private String title;
 

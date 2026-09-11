@@ -19,6 +19,9 @@
         <el-form-item label="经纬度">
           <el-input :value="`[${form.longitude.toFixed(4)}, ${form.latitude.toFixed(4)}]`" disabled />
         </el-form-item>
+        <el-form-item label="归属省市">
+          <el-tag type="info">{{ form.province || '未识别' }} · {{ form.city || '未识别' }}</el-tag>
+        </el-form-item>
         <el-form-item label="地点名称" required>
           <el-input v-model="form.title" placeholder="例如：西湖雷峰塔" maxlength="30" show-word-limit />
         </el-form-item>
@@ -36,8 +39,11 @@
     <el-dialog v-model="detailDialogVisible" title="打卡点详情" width="380px">
       <div v-if="activeMarker">
         <h4 style="margin: 0 0 10px 0; font-size: 18px">{{ activeMarker.title }}</h4>
+        <p style="color: #999; font-size: 12px; margin: 6px 0">
+          <strong>归属：</strong>{{ activeMarker.province || '未知' }} · {{ activeMarker.city || '未知' }}
+        </p>
         <p style="color: #666; margin: 6px 0"><strong>备注：</strong>{{ activeMarker.notes || '暂无备注' }}</p>
-        <p style="color: #999; font-size: 12px">打卡时间：{{ activeMarker.created_at || '刚刚' }}</p>
+        <p style="color: #999; font-size: 12px">打卡时间：{{ activeMarker.createdAt || '刚刚' }}</p>
       </div>
       <template #footer>
         <el-button @click="detailDialogVisible = false">关闭</el-button>
@@ -57,6 +63,7 @@ const mapInstance = shallowRef<any>(null)
 const markerList = ref<any[]>([])
 // 保存高德地图生成的 AMap.Marker 对象映射，方便后续根据 ID 移除地图上的图标
 const markerMap = new Map<number, any>()
+// 高德 JS API 命名空间（在 AMapLoader.load 回调中赋值，供新建 Marker 使用）
 let AMapRef: any = null
 
 const AMAP_KEY = import.meta.env.VITE_AMAP_KEY
@@ -73,22 +80,10 @@ const form = reactive({
   title: '',
   longitude: 0,
   latitude: 0,
+  province: '',
+  city: '',
   notes: ''
 })
-
-// 1. 初始化拉取后端数据
-const loadMarkersFromBackend = async () => {
-  try {
-    const res = await axios.get('/api/markers')
-    // 注意：因后端改为了 Result 统一返回体，数据在 res.data.data 中
-    if (res.data.code === 200) {
-      markerList.value = res.data.data
-      markerList.value.forEach((item) => renderSingleMarker(item))
-    }
-  } catch (err) {
-    ElMessage.error('拉取打卡标记失败')
-  }
-}
 
 // 2. 渲染单个 Marker 并绑定点击事件
 const renderSingleMarker = (data: any) => {
@@ -111,6 +106,20 @@ const renderSingleMarker = (data: any) => {
   // 用数据库 ID 记录地图上的图标引用
   if (data.id) {
     markerMap.set(data.id, marker)
+  }
+}
+
+// 1. 初始化拉取后端数据
+const loadMarkersFromBackend = async () => {
+  try {
+    const res = await axios.get('/api/markers')
+    // 注意：因后端改为了 Result 统一返回体，数据在 res.data.data 中
+    if (res.data.code === 200) {
+      markerList.value = res.data.data
+      markerList.value.forEach((item) => renderSingleMarker(item))
+    }
+  } catch (err) {
+    ElMessage.error('拉取打卡标记失败')
   }
 }
 
@@ -139,7 +148,8 @@ const handleSaveMarker = async () => {
 
 // 4. 删除标记
 const handleDeleteMarker = () => {
-  ElMessageBox.confirm(`确定要删除打卡点【${activeMarker.value.title}】吗？`, '警告', {
+  const title = activeMarker.value?.title ?? ''
+  ElMessageBox.confirm(`确定要删除打卡点【${title}】吗？`, '警告', {
     confirmButtonText: '确定删除',
     cancelButtonText: '取消',
     type: 'warning'
@@ -165,32 +175,51 @@ const handleDeleteMarker = () => {
   })
 }
 
-onMounted(() => {
+onMounted(async () => {
   ;(window as any)._AMapSecurityConfig = { securityJsCode: AMAP_SECURITY_CODE }
 
-  AMapLoader.load({
+  const AMap = await AMapLoader.load({
     key: AMAP_KEY,
     version: '2.0',
-    plugins: ['AMap.Scale', 'AMap.ToolBar']
-  }).then((AMap) => {
-    AMapRef = AMap
-    mapInstance.value = new AMap.Map('amap-container', {
-      viewMode: '3D',
-      zoom: 10,
-      center: [120.153576, 30.287459]
-    })
+    plugins: ['AMap.Scale', 'AMap.ToolBar', 'AMap.Geocoder'] // 新增 Geocoder
+  })
 
-    loadMarkersFromBackend()
+  // 保存高德命名空间，供 renderSingleMarker 新建 Marker
+  AMapRef = AMap
 
-    // 点击空白处打开 Element Plus 弹窗
-    mapInstance.value.on('click', (e: any) => {
-      form.title = ''
-      form.notes = ''
-      form.longitude = e.lnglat.getLng()
-      form.latitude = e.lnglat.getLat()
+  // 创建地图实例并赋值给 mapInstance（原先缺失，导致 mapInstance.value 一直为 null）
+  mapInstance.value = new AMap.Map('amap-container', {
+    zoom: 12,
+    center: [116.397428, 39.90923]
+  })
+
+  const geocoder = new AMap.Geocoder({ city: '全国' })
+
+  // 点击地图时：记录坐标 → 逆地理编码解析省市 → 预填表单 → 打开新增弹窗
+  mapInstance.value.on('click', (e: any) => {
+    const lng = e.lnglat.getLng()
+    const lat = e.lnglat.getLat()
+    form.longitude = lng
+    form.latitude = lat
+    form.title = ''
+    form.notes = ''
+    form.province = ''
+    form.city = ''
+
+    geocoder.getAddress([lng, lat], (status: string, result: any) => {
+      if (status === 'complete' && result.regeocode) {
+        const comp = result.regeocode.addressComponent
+        form.province = comp.province || ''
+        form.city = comp.city || comp.province || '' // 直辖市特殊处理
+        // 从地址中剔除省份名，预填推荐地点名
+        form.title = result.regeocode.formattedAddress.split(comp.province)[1] || ''
+      }
       addDialogVisible.value = true
     })
   })
+
+  // 地图就绪后再拉取后端已有打卡点
+  loadMarkersFromBackend()
 })
 
 onUnmounted(() => {

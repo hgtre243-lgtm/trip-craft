@@ -16,9 +16,11 @@
 ## ✨ 功能
 
 **当前已实现**
-- 🖱️ 前端高德地图：地图点击 → 输入名称 → 立即落点打卡
-- 🔄 打卡点列表自动从后端加载并渲染
-- 🛠️ 后端 REST API（MyBatis-Plus + MySQL 8 持久化）
+- 🖱️ 前端高德地图：地图点击 → 自动识别省市 → 输入名称 → 立即落点打卡
+- 📍 逆地理编码自动填充省份/城市，打卡点携带归属地
+- 🔄 打卡点列表自动从后端加载并渲染，支持点击查看/删除
+- 🗑️ 打卡点删除（物理删除，地图与列表同步移除）
+- 🛠️ 后端 REST API（MyBatis-Plus + MySQL 8 持久化，`Result` 统一返回体）
 - 💚 健康检查接口
 
 **规划中**
@@ -69,7 +71,7 @@ cp .env.example .env.local   # 填入 VITE_AMAP_KEY / VITE_AMAP_SECURITY_CODE
 npm run dev                  # http://localhost:5173
 ```
 
-> 本地端口：后端 8080 · 前端 5173 · MySQL 3306（库 `trip_craft`）· Redis 6379。
+> 本地端口：后端 8080 · 前端 5173 · MySQL 3307（容器内 3306，库 `trip_craft`）· Redis 6380（容器内 6379）。
 
 ## 📚 文档
 

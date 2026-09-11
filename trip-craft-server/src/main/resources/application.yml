@@ -9,7 +9,7 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     # characterEncoding 是 Java 字符集名：Connector/J 将 UTF-8/utf8 与 MySQL 服务端的 utf8mb4 协商对接
-    url: jdbc:mysql://localhost:3306/trip_craft?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3307/trip_craft?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: root
     password: root
 

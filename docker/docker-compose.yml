@@ -8,23 +8,21 @@ services:
       MYSQL_DATABASE: trip_craft
       TZ: Asia/Shanghai
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       # 使用命名卷而非 bind mount：Docker Desktop 的宿主文件共享层不支持
       # MySQL 初始化所需的 chown(owner -> mysql uid 999)，会导致容器循环重启
       - mysql_data:/var/lib/mysql
       # 首次初始化时自动执行建表脚本
       - ./mysql/init:/docker-entrypoint-initdb.d:ro
-    command:
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
   redis:
     image: redis:7-alpine
     container_name: tripcraft-redis
     restart: always
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - ./redis_data:/data
 
