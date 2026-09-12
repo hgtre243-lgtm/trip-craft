@@ -2,6 +2,7 @@ package com.tripcraft.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.tripcraft.entity.TripMarker;
+import com.tripcraft.vo.FootprintStatsVO;
 
 /**
  * 打卡点 Service.
@@ -10,4 +11,9 @@ import com.tripcraft.entity.TripMarker;
  * </p>
  */
 public interface TripMarkerService extends IService<TripMarker> {
+    FootprintStatsVO getFootprintStats();
+
+    boolean saveMarker(TripMarker marker);
+
+    boolean deleteMarker(Long id);
 }

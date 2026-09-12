@@ -4,109 +4,154 @@
     <div id="echarts-china-map" class="chart-container" v-loading="loading"></div>
 
     <!-- 悬浮数据统计看板 -->
-    <div class="stats-panel">
+    <div class="stats-panel" v-if="stats">
       <h3>🇨🇳 我的中国足迹大盘</h3>
       <div class="stat-item">
         <span class="label">已点亮省份</span>
-        <span class="value">{{ visitedProvinces.length }} <small>/ 34</small></span>
+        <span class="value">{{ stats.visitedProvinceCount }} <small>/ 34</small></span>
       </div>
       <div class="stat-item">
         <span class="label">全国省份覆盖率</span>
-        <span class="value">{{ ((visitedProvinces.length / 34) * 100).toFixed(1) }}%</span>
+        <span class="value">{{ stats.coverageRate }}%</span>
       </div>
       <div class="stat-item">
         <span class="label">累计打卡标记</span>
-        <span class="value">{{ markers.length }} 个</span>
+        <span class="value">{{ stats.totalMarkers }} 个</span>
       </div>
 
       <div class="visited-tags">
-        <p style="margin: 8px 0 4px; font-size: 12px; color: #666">已踏足：</p>
+        <p style="margin: 8px 0 4px; font-size: 12px; color: #94a3b8">点击已点亮省份查看足迹：</p>
         <el-tag
-          v-for="prov in visitedProvinces"
-          :key="prov"
+          v-for="item in stats.provinceList"
+          :key="item.province"
           type="warning"
           size="small"
           effect="dark"
-          style="margin: 2px"
+          style="margin: 2px; cursor: pointer"
+          @click="openProvinceDrawer(item.province)"
         >
-          {{ prov }}
+          {{ item.province }} ({{ item.count }})
         </el-tag>
-        <span v-if="visitedProvinces.length === 0" style="font-size: 12px; color: #999">暂无打卡，快去地图点亮吧！</span>
       </div>
     </div>
+
+    <!-- 省份详情抽屉 (点击省份下钻) -->
+    <el-drawer
+      v-model="drawerVisible"
+      :title="`📍 ${selectedProvince} · 历史足迹清单`"
+      direction="rtl"
+      size="380px"
+    >
+      <div v-loading="drawerLoading">
+        <div v-if="provinceMarkers.length === 0" style="color: #999; text-align: center; margin-top: 40px;">
+          暂无该省打卡数据
+        </div>
+        <div
+          v-for="marker in provinceMarkers"
+          :key="marker.id"
+          class="marker-card"
+        >
+          <div class="marker-title">{{ marker.title }}</div>
+          <div class="marker-meta">城市：{{ marker.city || '未知城市' }}</div>
+          <div class="marker-notes" v-if="marker.notes">“{{ marker.notes }}”</div>
+          <div class="marker-time">{{ marker.createdAt || '未知时间' }}</div>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, shallowRef, ref, computed } from 'vue'
+import { onMounted, onUnmounted, shallowRef, ref } from 'vue'
 import * as echarts from 'echarts'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 const chartInstance = shallowRef<echarts.ECharts | null>(null)
 const loading = ref(true)
-const markers = ref<any[]>([])
+const stats = ref<any>(null)
 
-// 统计去过的省份列表（去重）
-const visitedProvinces = computed(() => {
-  const set = new Set<string>()
-  markers.value.forEach((m) => {
-    if (m.province) set.add(m.province)
-  })
-  return Array.from(set)
-})
+// 抽屉状态
+const drawerVisible = ref(false)
+const drawerLoading = ref(false)
+const selectedProvince = ref('')
+const provinceMarkers = ref<any[]>([])
 
-// 初始化 ECharts 中国地图
-const initChinaMap = async () => {
-  loading.value = true
+// 打开指定省份抽屉
+const openProvinceDrawer = async (provinceName: string) => {
+  selectedProvince.value = provinceName
+  drawerVisible.value = true
+  drawerLoading.value = true
   try {
-    // 1. 加载本地省份 GeoJSON（public/100000_full.json，源于阿里云 DataV 官方数据，规避外网直连 403）
-    let geoData: any
-    try {
-      const geoRes = await axios.get('/100000_full.json')
-      geoData = geoRes.data
-    } catch (err) {
-      ElMessage.error('加载中国地图 GeoJSON 失败')
-      console.error('[GeoJSON]', err)
-      return
+    // 调接口只拉该省份的数据
+    const res = await axios.get(`/api/markers?province=${encodeURIComponent(provinceName)}`)
+    if (res.data.code === 200) {
+      provinceMarkers.value = res.data.data
     }
-    echarts.registerMap('china', geoData)
+  } catch (e) {
+    ElMessage.error('获取省份打卡点失败')
+  } finally {
+    drawerLoading.value = false
+  }
+}
 
-    // 2. 从后端拉取所有打卡点
-    try {
-      const markerRes = await axios.get('/api/markers')
-      if (markerRes.data.code === 200) {
-        markers.value = markerRes.data.data
+// 初始化地图
+const initChinaMap = async () => {
+  try {
+    loading.value = true
+
+    // 1. 获取地图 GeoJSON（改为使用本地 public/100000_full.json，避免局域网/离线访问公网 CDN 失败）
+    const geoRes = await axios.get('/100000_full.json')
+    echarts.registerMap('china', geoRes.data)
+
+    // 2. 调后端专属统计接口 (享受 Redis 加速)
+    const statsRes = await axios.get('/api/markers/stats')
+    if (statsRes.data.code === 200) {
+      stats.value = statsRes.data.data
+    }
+
+    const provinceStatsMap = new Map<string, number>()
+    stats.value?.provinceList?.forEach((p: any) => {
+      provinceStatsMap.set(p.province, p.count)
+    })
+
+    // 3. 构建染色数据
+    const mapData = geoRes.data.features.map((f: any) => {
+      const geoProvinceName = f.properties.name
+      // 匹配省份
+      let matchedCount = 0
+      let fullProvinceName = ''
+      for (const [pName, cnt] of provinceStatsMap.entries()) {
+        if (pName.includes(geoProvinceName) || geoProvinceName.includes(pName)) {
+          matchedCount = cnt
+          fullProvinceName = pName
+          break
+        }
       }
-    } catch (err) {
-      ElMessage.error('拉取打卡数据失败')
-      console.error('[markers]', err)
-      return
-    }
 
-    // 3. 构建高亮数据（已点亮省份设高分，未点亮设 0）
-    const mapData = geoData.features.map((f: any) => {
-      const provinceName = f.properties.name
-      // 模糊匹配省份名称（例如："浙江省" 匹配 "浙江"）
-      const isVisited = visitedProvinces.value.some((p) => p.includes(provinceName) || provinceName.includes(p))
       return {
-        name: provinceName,
-        value: isVisited ? 100 : 0
+        name: geoProvinceName,
+        value: matchedCount > 0 ? 100 : 0,
+        originalProvince: fullProvinceName || geoProvinceName,
+        markerCount: matchedCount
       }
     })
 
-    // 4. 配置地图样式
     const chartDom = document.getElementById('echarts-china-map')
     if (!chartDom) return
 
     chartInstance.value = echarts.init(chartDom)
     const option: echarts.EChartsOption = {
-      backgroundColor: '#1e293b', // 暗夜蓝底色
+      backgroundColor: '#1e293b',
       tooltip: {
         trigger: 'item',
         formatter: (params: any) => {
-          const status = params.value > 0 ? '✨ 已点亮' : '⚪ 未踏足'
-          return `<b>${params.name}</b><br/>状态：${status}`
+          const data = params.data
+          if (!data) return params.name
+          if (data.markerCount > 0) {
+            return `<b>${params.name}</b><br/>✨ 已点亮！累计打卡 <b>${data.markerCount}</b> 处<br/><small style="color:#fbbf24">👉 点击查看详细足迹</small>`
+          }
+          return `<b>${params.name}</b><br/>⚪ 未踏足`
         }
       },
       visualMap: {
@@ -114,7 +159,7 @@ const initChinaMap = async () => {
         min: 0,
         max: 100,
         inRange: {
-          color: ['#334155', '#eab308'] // 未点亮：深灰蓝；已点亮：璀璨金黄
+          color: ['#334155', '#eab308'] // 深灰蓝 -> 璀璨金黄
         }
       },
       series: [
@@ -122,36 +167,41 @@ const initChinaMap = async () => {
           name: '中国地图',
           type: 'map',
           map: 'china',
-          roam: true, // 支持鼠标拖拽与缩放
+          roam: true,
           zoom: 1.2,
           emphasis: {
             label: { show: true, color: '#fff' },
             itemStyle: { areaColor: '#f59e0b' }
           },
-          select: { disabled: true },
           data: mapData
         }
       ]
     }
 
     chartInstance.value.setOption(option)
+
+    // 4. 监听 ECharts 地图点击事件：点击已点亮省份，打开下钻抽屉！
+    chartInstance.value.on('click', (params: any) => {
+      if (params.data && params.data.markerCount > 0) {
+        openProvinceDrawer(params.data.originalProvince)
+      } else {
+        ElMessage.info(`${params.name} 尚未打卡，快去探索吧！`)
+      }
+    })
+
+  } catch (err) {
+    ElMessage.error('加载足迹大盘失败')
   } finally {
     loading.value = false
   }
 }
 
-// 监听窗口自适应
-const handleResize = () => {
-  chartInstance.value?.resize()
-}
-
 onMounted(() => {
   initChinaMap()
-  window.addEventListener('resize', handleResize)
+  window.addEventListener('resize', () => chartInstance.value?.resize())
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
   chartInstance.value?.dispose()
 })
 </script>
@@ -173,7 +223,7 @@ onUnmounted(() => {
   right: 20px;
   z-index: 10;
   width: 260px;
-  background: rgba(30, 41, 59, 0.9);
+  background: rgba(30, 41, 59, 0.92);
   color: #fff;
   padding: 16px 20px;
   border-radius: 12px;
@@ -183,7 +233,7 @@ onUnmounted(() => {
 }
 .stats-panel h3 {
   margin: 0 0 14px 0;
-  font-size: 16px;
+  font-size: 15px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: 8px;
 }
@@ -206,5 +256,31 @@ onUnmounted(() => {
   font-size: 12px;
   color: #94a3b8;
   font-weight: normal;
+}
+.marker-card {
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border-left: 4px solid #eab308;
+}
+.marker-title {
+  font-weight: bold;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+.marker-meta {
+  font-size: 12px;
+  color: #64748b;
+}
+.marker-notes {
+  font-size: 13px;
+  color: #475569;
+  margin: 6px 0;
+  font-style: italic;
+}
+.marker-time {
+  font-size: 11px;
+  color: #94a3b8;
 }
 </style>
