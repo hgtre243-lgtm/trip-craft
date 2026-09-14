@@ -11,21 +11,23 @@
 
 </div>
 
-高德地图上**点击落点即可打卡**，前后端打通、数据落库；后续规划智能路线避绕路、出游 AA 平账、全国足迹点亮大盘。
+高德地图上**点击落点即可打卡**，前后端打通、数据落库；配备 **高德探索打卡 · 全国足迹大盘 · 行程规划** 三个视图，
+后续规划智能路线避绕路、出游 AA 平账。
 
 ## ✨ 功能
 
 **当前已实现**
-- 🖱️ 前端高德地图：地图点击 → 自动识别省市 → 输入名称 → 立即落点打卡
-- 📍 逆地理编码自动填充省份/城市，打卡点携带归属地
-- 🔄 打卡点列表自动从后端加载并渲染，支持点击查看/删除
-- 🗑️ 打卡点删除（物理删除，地图与列表同步移除）
+- 🖱️ **高德地图打卡**：地图点击 → 逆地理编码自动识别省市 → 输入名称 → 立即落点打卡
+- 📍 打卡点携带归属地（省份/城市），支持点击查看 / 删除（物理删除，地图与列表同步移除）
+- 🇨🇳 **全国足迹大盘**（ECharts 中国地图）：已点亮省份染色、覆盖率 / 累计打卡统计，点击省份下钻查看历史足迹
+- ⚡ 足迹统计经 **Redis Cache-Aside** 缓存（TTL 2h），增删打卡自动失效缓存
+- 🧭 **行程规划**：创建行程 → 自动按起止日期生成多天日程骨架（强事务），分天 Tab 浏览
 - 🛠️ 后端 REST API（MyBatis-Plus + MySQL 8 持久化，`Result` 统一返回体）
 - 💚 健康检查接口
 
 **规划中**
 - 智能行程路线（避绕路）、出游 AA 平账
-- 全国足迹点亮大盘（ECharts GeoJSON）
+- 行程分天游玩节点拖拽排程
 
 ## 🖼️ 演示
 
@@ -37,8 +39,8 @@
 
 | 端 | 技术 |
 |---|---|
-| 后端 | Java 21 · Spring Boot 3.3 · Spring Web · MyBatis-Plus · MySQL 8 · Lombok |
-| 前端 | Vue 3 · Vite · TypeScript · 高德地图 JS API · Axios |
+| 后端 | Java 21 · Spring Boot 3.3 · Spring Web · MyBatis-Plus · MySQL 8 · Redis（Spring Data Redis）· Lombok |
+| 前端 | Vue 3 · Vite · TypeScript · 高德地图 JS API（逆地理编码）· ECharts 6 · Element Plus · Axios |
 | 基础设施 | Docker Compose（MySQL 8.0 · Redis 7），MySQL 命名卷 + 自动建表 |
 
 ## 📁 目录结构
@@ -62,7 +64,8 @@ cd docker && docker compose up -d
 
 # 2. 后端
 cd ../trip-craft-server && mvn spring-boot:run
-curl http://localhost:8080/api/health   # {"status":"UP","appName":"TripCraft"}
+curl http://localhost:8080/api/health        # {"status":"UP","appName":"TripCraft"}
+curl http://localhost:8080/api/markers/stats # 足迹统计（Redis 加速）
 
 # 3. 前端（需高德 Key）
 cd ../trip-craft-web
@@ -75,8 +78,8 @@ npm run dev                  # http://localhost:5173
 
 ## 📚 文档
 
-- [接口文档 (REST API)](docs/api.md)
-- [本地开发指南](docs/development.md)
+- [接口文档 (REST API)](docs/api.md)：统一返回体、打卡点 / 足迹统计 / 行程规划接口、数据模型
+- [本地开发指南](docs/development.md)：后端分层、Redis 缓存、MySQL 字符集与踩坑记录、前端调用约定
 
 ## 🤝 贡献
 

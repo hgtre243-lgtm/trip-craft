@@ -7,20 +7,33 @@
 ```
 com.tripcraft
 ├── TripCraftApplication        # 启动类；@MapperScan("com.tripcraft.mapper")
-├── controller/                 # 仅做参数接收与路由
-│   ├── HealthController        #   GET /api/health
-│   └── TripMarkerController    #   GET|POST|DELETE /api/markers，返回 Result<T> 统一包装
+├── controller/                 # 仅做参数接收与路由，统一返回 Result<T>
+│   ├── HealthController        #   GET /api/health（裸返回，不包装）
+│   ├── TripMarkerController    #   GET|POST|DELETE /api/markers、GET /api/markers/stats
+│   └── TripPlanController      #   GET|POST /api/trip-plan、GET /api/trip-plan/{id}
 ├── common/                     # Result 统一返回体、GlobalExceptionHandler 全局异常
 ├── service/
-│   ├── TripMarkerService       # 接口，继承 MyBatis-Plus IService<TripMarker>
-│   └── impl/TripMarkerServiceImpl
+│   ├── TripMarkerService       # 继承 IService<TripMarker>；getFootprintStats/saveMarker/deleteMarker
+│   ├── TripPlanService         # 继承 IService<TripPlan>；getTripDetail/createTripWithDays
+│   └── impl/
+│       ├── TripMarkerServiceImpl   # 足迹统计（Redis Cache-Aside）、增删打卡点并失效缓存
+│       └── TripPlanServiceImpl     # @Transactional 创建行程并自动生成分天子记录
 ├── mapper/
-│   └── TripMarkerMapper        # 继承 BaseMapper<TripMarker>，由 @MapperScan 注册
-└── entity/
-    └── TripMarker              # Lombok @Data
+│   ├── TripMarkerMapper        # 继承 BaseMapper<TripMarker>
+│   ├── TripPlanMapper          # 继承 BaseMapper<TripPlan>
+│   └── TripDayMapper           # 继承 BaseMapper<TripDay>
+├── entity/
+│   ├── TripMarker              # trip_marker：打卡标记（含 province/city）
+│   ├── TripPlan                # trip_plan：行程主表
+│   └── TripDay                 # trip_day：行程分天子表
+└── vo/
+    ├── FootprintStatsVO        # 足迹统计聚合结果（含内部类 ProvinceStat）
+    └── TripDetailVO            # 行程详情（plan + days 一次组装）
 ```
 
-约定：Controller 不直接依赖 Mapper，业务逻辑下沉到 Service。
+约定：
+- Controller 不直接依赖 Mapper，业务逻辑下沉到 Service。
+- 复杂聚合（足迹统计）放在 Service 中做，Controller 保持薄；SQL 聚合用 `QueryWrapper`/`LambdaQueryWrapper`。
 
 ## 本地跑起来
 
@@ -47,6 +60,20 @@ cd trip-craft-web && npm install && npm run dev
   应写 `characterEncoding=utf8`（Java UTF-8），Connector/J 会自动与服务端 utf8mb4 协商。
 - 连接本地 MySQL 的客户端也要用 utf8mb4（后端连的是容器，宿主端口 3307）：
   `mysql --default-character-set=utf8mb4 -h127.0.0.1 -P3307 -uroot -proot`
+
+## Redis 缓存（足迹统计，Cache-Aside 模式）
+
+后端 `spring-boot-starter-data-redis`，`application.yml` 连接 `localhost:6380`（容器内 6379）。
+
+- 缓存键：`trip:footprint:stats`，值为 `FootprintStatsVO` 的 JSON。
+- **读**（`getFootprintStats`）：先查 Redis → 命中直接反序列化返回；未命中查 MySQL 聚合 → 回写 Redis 并设 **2 小时 TTL**。
+- **写**（认真做好一致性）：
+  - `saveMarker`：先写库，成功后**删除缓存**（`redisTemplate.delete`）。
+  - `deleteMarker`：先删库，成功后**删除缓存**。
+- 反序列化失败（如缓存格式变更）会打日志降级到查库，不阻塞业务。
+
+> 约定：**写库必删缓存**，杜绝「先写库再改缓存」的老旧做法带来的脏读窗口。
+> 当前仅足迹统计这一处用缓存，后续行程分类似「读多写少」接口可复用同一模式。
 
 ## Docker MySQL 数据卷说明
 
@@ -116,3 +143,9 @@ cd trip-craft-web && npm install && npm run dev
 
 - 前端通过相对路径 `/api/...` 请求后端，由 `vite.config.ts` 开发代理转发到 `localhost:8080`。
 - 高德 Key 与安全密钥从 `.env.local` 读取（`VITE_AMAP_KEY` / `VITE_AMAP_SECURITY_CODE`），该文件已被忽略、不入库。
+- 三个视图按 `App.vue` 顶部 `el-radio-group` 切换，`keep-alive`（`v-show` for map）避免重复销毁重绘：
+  - `MapContainer.vue`：高德地图点击落点打卡（`AMap.Geocoder` 逆地理编码自动填充省市）。
+  - `FootprintBoard.vue`：ECharts 中国地图，本地 `public/100000_full.json` GeoJSON（避免离线/局域网 CDN 失败），
+    消费 `/api/markers/stats` + `/api/markers?province=` 下钻抽屉。
+  - `TripPlanner.vue`：行程清单 + 分天 Tab 编排（当前分天仅日期骨架，游玩节点待接入）。
+- UI 组件库：Element Plus；地图渲染：ECharts + `@amap/amap-jsapi-loader`。

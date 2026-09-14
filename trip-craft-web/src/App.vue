@@ -6,13 +6,15 @@
       <el-radio-group v-model="currentView" size="small">
         <el-radio-button value="map">🗺️ 高德探索打卡</el-radio-button>
         <el-radio-button value="footprint">🇨🇳 全国足迹大盘</el-radio-button>
+        <el-radio-button value="planner">🧭 行程规划</el-radio-button> <!-- 新增 -->
       </el-radio-group>
     </header>
 
     <!-- 视图切换：keep-alive 保证切换时不重复销毁重绘 -->
     <main class="app-main">
-      <MapContainer v-show="currentView === 'map'" />
-      <FootprintBoard v-if="currentView === 'footprint'" />
+        <MapContainer v-show="currentView === 'map'" />
+        <FootprintBoard v-if="currentView === 'footprint'" />
+        <TripPlanner v-if="currentView === 'planner'" /> <!-- 新增 -->
     </main>
   </div>
 </template>
@@ -21,8 +23,9 @@
 import { ref } from 'vue'
 import MapContainer from './components/MapContainer.vue'
 import FootprintBoard from './components/FootprintBoard.vue'
+import TripPlanner from './components/TripPlanner.vue' // 新增
 
-const currentView = ref<'map' | 'footprint'>('map')
+const currentView = ref<'map' | 'footprint'|'planner'>('map')
 </script>
 
 <style>
