@@ -169,7 +169,7 @@ curl -X DELETE http://localhost:8080/api/markers/2
 ### 3.1 获取行程列表
 
 ```
-GET /api/trip-plan
+GET /api/trips
 ```
 
 返回全部行程（按主键顺序），**响应 200**：
@@ -195,7 +195,7 @@ GET /api/trip-plan
 ### 3.2 创建行程（自动生成分天子日程）
 
 ```
-POST /api/trip-plan
+POST /api/trips
 Content-Type: application/json
 ```
 
@@ -214,8 +214,8 @@ Content-Type: application/json
 | coverColor | 否 | 卡片主题色，默认 `#3b82f6` |
 | id / createdAt | 否 | 由服务端生成 |
 
-> ⚠️ 单个方法内通过 `@Transactional` 强事务保证：先落 `trip_plan` 主表，再批量插入
-> `trip_plan` 主记录、然后按天数循环插入 `trip_day` 子记录。当 `endDate < startDate` 时抛
+> ⚠️ 单个方法内通过 `@Transactional` 强事务保证：先落 `trip_plan` 主记录，再按天数循环插入
+> `trip_day` 子记录。当 `endDate < startDate` 时抛
 > `IllegalArgumentException`（被全局异常处理器转为 `Result` 500）。
 
 **响应 200**：返回持久化后的行程对象（`id` 与 `totalDays` 已回填）：
@@ -239,7 +239,7 @@ Content-Type: application/json
 ### 3.3 获取行程详情（含分天列表）
 
 ```
-GET /api/trip-plan/{id}
+GET /api/trips/{id}
 ```
 
 返回行程主信息 + 按 `dayIndex` 升序的分天子列表（一次请求组装为 `TripDetailVO`，避免前端多次请求）。
@@ -271,13 +271,153 @@ GET /api/trip-plan/{id}
 **示例（curl）**
 
 ```bash
-curl http://localhost:8080/api/trip-plan
+curl http://localhost:8080/api/trips
 
-curl -X POST http://localhost:8080/api/trip-plan \
+curl -X POST http://localhost:8080/api/trips \
   -H 'Content-Type: application/json' \
   -d '{"title":"杭州秋季赏枫3日游","startDate":"2026-10-15","endDate":"2026-10-17"}'
 
-curl http://localhost:8080/api/trip-plan/1
+curl http://localhost:8080/api/trips/1
+```
+
+---
+
+## 4. 行程节点（每日游玩安排）
+
+属于某个分天（`trip_day`）下的具体游玩地点，用 `orderNum` 记录当天游览次序。
+
+### 4.1 获取某天的节点列表
+
+```
+GET /api/trips/days/{dayId}/nodes
+```
+
+按 `orderNum` **升序**返回该天的全部游玩节点；当天无节点时 `data` 为 `[]`。**响应 200**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": [
+    {
+      "id": 1,
+      "dayId": 1,
+      "spotName": "西湖断桥",
+      "longitude": 120.1500000,
+      "latitude": 30.2600000,
+      "orderNum": 1,
+      "notes": "早上人少，适合拍照",
+      "createdAt": "2026-09-16T10:48:17"
+    },
+    {
+      "id": 2,
+      "dayId": 1,
+      "spotName": "灵隐寺",
+      "longitude": null,
+      "latitude": null,
+      "orderNum": 2,
+      "notes": "",
+      "createdAt": "2026-09-16T10:50:02"
+    }
+  ]
+}
+```
+
+> `longitude` / `latitude` 允许为 `null`（当前前端添加节点时只填名称与备注，尚未接入地图选点）。
+> `dayId` 不存在时同样返回空数组，不报错。
+
+### 4.2 添加游玩节点
+
+```
+POST /api/trips/nodes
+Content-Type: application/json
+```
+
+**请求体**
+
+```json
+{ "dayId": 1, "spotName": "西湖断桥", "notes": "早上人少，适合拍照" }
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| dayId | 是 | 所属分天 ID（`trip_day.id`） |
+| spotName | 是 | 游玩地点名称 |
+| notes | 否 | 游玩备注 / 攻略提示，默认 `''` |
+| longitude / latitude | 否 | 经纬度，暂未使用，可省略 |
+| orderNum | 否 | **由服务端自动推算**（当天现有最大 `orderNum` + 1），传入忽略 |
+| id / createdAt | 否 | 由服务端生成 |
+
+**响应 200**：返回落库后的完整节点对象（`id` 与 `orderNum` 已回填）。
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": { "id": 1, "dayId": 1, "spotName": "西湖断桥", "orderNum": 1, "notes": "早上人少，适合拍照", "createdAt": "2026-09-16T10:48:17" }
+}
+```
+
+> ⚠️ 已知缺陷：`addNode` 内部用 `orderByAsc(...).last("LIMIT 1")` 取「最大 orderNum」，实际取到的是最小值，
+> 会让新节点次序算错（详见 `docs/development.md` 踩坑记录第 5 条，应改为 `orderByDesc`）。
+
+### 4.3 删除游玩节点
+
+```
+DELETE /api/trips/nodes/{id}
+```
+
+按主键物理删除节点。**响应 200**
+
+```json
+{ "code": 200, "message": "success", "data": null }
+```
+
+> 删除后**不会**自动重排当天剩余节点的 `orderNum`，序号会出现空档（如 1、3、4）。
+> 因查询只依赖 `orderByAsc`，显示顺序仍正确；如需连续序号可在删除后调一次 4.4 重排。
+
+### 4.4 拖拽重排（批量更新游览次序）
+
+```
+PUT /api/trips/days/{dayId}/nodes/reorder
+Content-Type: application/json
+```
+
+前端在拖拽结束后，把当前**完整的有序节点 ID 列表**整体提交，服务端按下标重写 `orderNum = index + 1`。
+
+**请求体**（裸数组，不是对象）
+
+```json
+[3, 1, 2]
+```
+
+- **数组元素**：`trip_node.id`，顺序即拖拽后的目标顺序。
+- **必须传全**：应传当天**全部**节点的 ID；只传部分会导致未传到的节点保留旧序号。
+- **越权保护**：更新语句带 `WHERE id = ? AND day_id = {dayId}`，即使传入别的天的节点 ID 也不会被误改。
+
+**响应 200**
+
+```json
+{ "code": 200, "message": "success", "data": null }
+```
+
+> ⚠️ 整个重排过程包在 `@Transactional(rollbackFor = Exception.class)` 中：任何一条更新失败都会**整体回滚**，
+> 不会出现「改了一半」的乱序状态。
+
+**示例（curl）**
+
+```bash
+curl http://localhost:8080/api/trips/days/1/nodes
+
+curl -X POST http://localhost:8080/api/trips/nodes \
+  -H 'Content-Type: application/json' \
+  -d '{"dayId":1,"spotName":"西湖断桥","notes":"早上人少，适合拍照"}'
+
+curl -X DELETE http://localhost:8080/api/trips/nodes/1
+
+curl -X PUT http://localhost:8080/api/trips/days/1/nodes/reorder \
+  -H 'Content-Type: application/json' \
+  -d '[3,1,2]'
 ```
 
 ---
@@ -344,6 +484,19 @@ TripMarkerController  →  TripMarkerServiceImpl (继承 IService<TripMarker>)
 | plan_date | date | 对应公历日期 |
 | created_at | datetime | 创建时间，默认 `CURRENT_TIMESTAMP` |
 
+### `trip_node`（每日游玩节点表，关联 `trip_day`）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | bigint (PK, AUTO_INCREMENT) | 主键 |
+| day_id | bigint | 所属分天 ID（逻辑关联 `trip_day.id`，建表 `idx_day_id` / `idx_day_order` 索引） |
+| spot_name | varchar(100) | 游玩地点名称 |
+| longitude | decimal(10,7) | 经度，可空（尚未接入地图选点） |
+| latitude | decimal(10,7) | 纬度，可空 |
+| order_num | int | 当天游览次序（1, 2, 3…），拖拽重排时被整体重写 |
+| notes | varchar(255) | 游玩备注 / 攻略提示，默认 `''` |
+| created_at | datetime | 创建时间，默认 `CURRENT_TIMESTAMP` |
+
 ### 分层调用链
 
 ```
@@ -351,7 +504,15 @@ TripPlanController  →  TripPlanServiceImpl (继承 IService<TripPlan>)
                    →  TripPlanMapper (BaseMapper<TripPlan>)
                    →  trip_plan 表
                    →  TripDayMapper (BaseMapper<TripDay>)  →  trip_day 表
+
+TripNodeController  →  TripNodeServiceImpl (继承 IService<TripNode>)
+                   →  TripNodeMapper (BaseMapper<TripNode>)
+                   →  trip_node 表
 ```
 
-- 上述行程/子表映射：`total_days ↔ totalDays`、`plan_date ↔ planDate` 等均经 MyBatis-Plus 驼峰映射。
-- `trip_day` 与 `TripMarker` 目前**无外键约束**；分天子表目前仅存日期骨架（尚未放游玩节点）。
+- 上述行程/子表映射：`total_days ↔ totalDays`、`plan_date ↔ planDate`、`order_num ↔ orderNum`、
+  `spot_name ↔ spotName` 等均经 MyBatis-Plus 驼峰映射。
+- `trip_day` / `trip_node` 与 `TripMarker` 目前**均无外键约束**，靠 `trip_id` / `day_id` 逻辑关联，
+  索引已建但数据库层不强制一致性（删除行程时不会级联删子表）。
+- 行程三张表共用 `/api/trips` 前缀，分别由 `TripPlanController`（`/api/trips`、`/api/trips/{id}`）
+  与 `TripNodeController`（`/api/trips/days/...`、`/api/trips/nodes/...`）提供接口。

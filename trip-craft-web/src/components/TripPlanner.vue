@@ -8,7 +8,7 @@
       </div>
 
       <div class="trip-list" v-loading="loading">
-        <div v-if="tripList.length === 0" class="empty-tip">暂无行程，点击上方创建你的第一次旅行！</div>
+        <div v-if="tripList.length === 0" class="empty-tip">暂无行程，点击上方创建！</div>
         <div
           v-for="trip in tripList"
           :key="trip.id"
@@ -25,31 +25,75 @@
       </div>
     </div>
 
-    <!-- 右侧：当前选中的行程分天编排视图 -->
+    <!-- 右侧：分天排程与拖拽卡片 -->
     <div class="main-content" v-loading="detailLoading">
       <div v-if="currentTripDetail" class="detail-wrapper">
         <div class="detail-header">
           <h2>{{ currentTripDetail.plan.title }}</h2>
-          <span class="dates-tag">出行排期：{{ currentTripDetail.plan.startDate }} 至 {{ currentTripDetail.plan.endDate }}（共 {{ currentTripDetail.plan.totalDays }} 天）</span>
+          <span class="dates-tag">
+            出行排期：{{ currentTripDetail.plan.startDate }} 至 {{ currentTripDetail.plan.endDate }}（共 {{ currentTripDetail.plan.totalDays }} 天）
+          </span>
         </div>
 
         <!-- 核心交互：分天 Tab 栏 -->
-        <el-tabs v-model="activeDayTab" type="border-card" class="day-tabs">
+        <el-tabs v-model="activeDayId" type="border-card" class="day-tabs" @tab-change="handleTabChange">
           <el-tab-pane
             v-for="day in currentTripDetail.days"
             :key="day.id"
             :label="`Day ${day.dayIndex} (${day.planDate.substring(5)})`"
-            :name="`day_${day.dayIndex}`"
+            :name="day.id"
           >
             <div class="day-content">
               <div class="day-header">
-                <h4>第 {{ day.dayIndex }} 天日程清单</h4>
-                <el-button size="small" type="success" plain>+ 添加该日游玩地点</el-button>
+                <h4>第 {{ day.dayIndex }} 天游玩排程清单</h4>
+                <el-button size="small" type="success" plain @click="openAddNodeDialog">
+                  + 添加游玩地点
+                </el-button>
               </div>
-              <!-- 占位预告，为明天接入拖拽排程做准备 -->
-              <div class="empty-node-box">
-                <p>📍 本日暂未添加游玩节点</p>
-                <small style="color: #94a3b8">点击上方按钮，或在地图模式中将打卡点添加至本日排程</small>
+
+              <!-- 拖拽列表核心：vuedraggable -->
+              <div v-loading="nodesLoading">
+                <div v-if="nodeList.length === 0" class="empty-node-box">
+                  <p>📍 本日暂无游玩安排</p>
+                  <small style="color: #94a3b8">点击右上角按钮添加本日游玩的景点、餐厅或酒店</small>
+                </div>
+
+                <draggable
+                  v-else
+                  :list="nodeList"
+                  item-key="id"
+                  handle=".drag-handle"
+                  animation="200"
+                  @end="handleDragEnd"
+                >
+                  <template #item="{ element, index }">
+                    <div class="node-card">
+                      <!-- 拖拽抓手手柄 -->
+                      <div class="drag-handle" title="按住拖拽重排次序">⋮⋮</div>
+
+                      <!-- 排序序号徽标 -->
+                      <div class="order-badge">{{ index + 1 }}</div>
+
+                      <!-- 地点核心信息 -->
+                      <div class="node-info">
+                        <div class="node-title">{{ element.spotName }}</div>
+                        <div class="node-notes" v-if="element.notes">💡 备注：{{ element.notes }}</div>
+                      </div>
+
+                      <!-- 操作栏 -->
+                      <div class="node-actions">
+                        <el-button
+                          type="danger"
+                          size="small"
+                          link
+                          @click="handleDeleteNode(element.id, element.spotName)"
+                        >
+                          删除
+                        </el-button>
+                      </div>
+                    </div>
+                  </template>
+                </draggable>
               </div>
             </div>
           </el-tab-pane>
@@ -61,7 +105,7 @@
       </div>
     </div>
 
-    <!-- 新建行程弹窗 -->
+    <!-- 弹窗 1：新建行程 -->
     <el-dialog v-model="createDialogVisible" title="创建新出行计划" width="450px">
       <el-form :model="createForm" label-width="90px">
         <el-form-item label="行程名称" required>
@@ -84,34 +128,60 @@
         <el-button type="primary" :loading="createLoading" @click="handleCreateTrip">确认创建</el-button>
       </template>
     </el-dialog>
+
+    <!-- 弹窗 2：向当前分天添加游玩节点 -->
+    <el-dialog v-model="addNodeDialogVisible" title="添加游玩地点" width="420px">
+      <el-form :model="nodeForm" label-width="80px">
+        <el-form-item label="地点名称" required>
+          <el-input v-model="nodeForm.spotName" placeholder="例如：西湖断桥 / 灵隐寺" />
+        </el-form-item>
+        <el-form-item label="游玩备注">
+          <el-input v-model="nodeForm.notes" type="textarea" rows="2" placeholder="游玩建议、门票信息、耗时预估等" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addNodeDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="addNodeLoading" @click="handleAddNode">确认添加</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import draggable from 'vuedraggable'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
+// 基础状态
 const loading = ref(false)
 const detailLoading = ref(false)
+const nodesLoading = ref(false)
 const tripList = ref<any[]>([])
 const currentTripId = ref<number | null>(null)
 const currentTripDetail = ref<any>(null)
-const activeDayTab = ref('day_1')
+const activeDayId = ref<number | null>(null)
+const nodeList = ref<any[]>([])
 
-// 新建弹窗表单
+// 新建行程弹窗表单
 const createDialogVisible = ref(false)
 const createLoading = ref(false)
 const dateRange = ref<[string, string] | null>(null)
-const createForm = reactive({
-  title: ''
+const createForm = reactive({ title: '' })
+
+// 添加节点弹窗表单
+const addNodeDialogVisible = ref(false)
+const addNodeLoading = ref(false)
+const nodeForm = reactive({
+  spotName: '',
+  notes: ''
 })
 
-// 拉取行程列表
+// 1. 拉取所有行程列表
 const loadTrips = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/trip-plan')
+    const res = await axios.get('/api/trips')
     if (res.data.code === 200) {
       tripList.value = res.data.data
       if (tripList.value.length > 0 && !currentTripId.value) {
@@ -125,15 +195,19 @@ const loadTrips = async () => {
   }
 }
 
-// 选中某个行程
+// 2. 选中行程并加载分天
 const selectTrip = async (id: number) => {
   currentTripId.value = id
   detailLoading.value = true
   try {
-    const res = await axios.get(`/api/trip-plan/${id}`)
+    const res = await axios.get(`/api/trips/${id}`)
     if (res.data.code === 200) {
       currentTripDetail.value = res.data.data
-      activeDayTab.value = 'day_1'
+      if (currentTripDetail.value.days && currentTripDetail.value.days.length > 0) {
+        // 默认选中第一天
+        activeDayId.value = currentTripDetail.value.days[0].id
+        await loadNodes(activeDayId.value!)
+      }
     }
   } catch (err) {
     ElMessage.error('获取行程详情失败')
@@ -142,14 +216,118 @@ const selectTrip = async (id: number) => {
   }
 }
 
-// 打开创建弹窗
+// 3. 切换分天 Tab 时加载该天的节点列表
+const handleTabChange = (tabId: any) => {
+  loadNodes(Number(tabId))
+}
+
+// 4. 加载指定分天的游玩节点列表
+const loadNodes = async (dayId: number) => {
+  nodesLoading.value = true
+  try {
+    const res = await axios.get(`/api/trips/days/${dayId}/nodes`)
+    if (res.data.code === 200) {
+      nodeList.value = res.data.data
+    }
+  } catch (err) {
+    ElMessage.error('获取该日日程节点失败')
+  } finally {
+    nodesLoading.value = false
+  }
+}
+
+// 5. 打开添加节点弹窗
+const openAddNodeDialog = () => {
+  nodeForm.spotName = ''
+  nodeForm.notes = ''
+  addNodeDialogVisible.value = true
+}
+
+// 6. 提交添加节点
+const handleAddNode = async () => {
+  if (!nodeForm.spotName.trim()) {
+    ElMessage.warning('请输入地点名称')
+    return
+  }
+  addNodeLoading.value = true
+  try {
+    const postData = {
+      dayId: activeDayId.value,
+      spotName: nodeForm.spotName.trim(),
+      notes: nodeForm.notes.trim()
+    }
+    const res = await axios.post('/api/trips/nodes', postData)
+    if (res.data.code === 200) {
+      ElMessage.success('添加成功！')
+      addNodeDialogVisible.value = false
+      await loadNodes(activeDayId.value!)
+    }
+  } catch (err) {
+    ElMessage.error('添加失败')
+  } finally {
+    addNodeLoading.value = false
+  }
+}
+
+// 7. 删除节点
+const handleDeleteNode = (id: number, name: string) => {
+  ElMessageBox.confirm(`确定删除地点【${name}】吗？`, '提示', {
+    type: 'warning',
+    confirmButtonText: '确定删除',
+    cancelButtonText: '取消'
+  }).then(async () => {
+    try {
+      const res = await axios.delete(`/api/trips/nodes/${id}`)
+      if (res.data.code === 200) {
+        ElMessage.success('已删除')
+        await loadNodes(activeDayId.value!)
+      }
+    } catch (err) {
+      ElMessage.error('删除失败')
+    }
+  })
+}
+
+// 8. 核心亮点：拖拽结束触发后端批量重排
+// 8. 核心亮点：拖拽结束触发后端批量重排
+const handleDragEnd = () => {
+  // v-model 改为 :list 后，需要在这里把拖拽后的新顺序同步回响应式列表（否则标签顺序和实际不符）
+  nodeList.value = [...nodeList.value]
+  const orderedIds = nodeList.value.map((item) => item.id)
+  ;(async () => {
+    try {
+      const res = await axios.put(`/api/trips/days/${activeDayId.value}/nodes/reorder`, orderedIds)
+      if (res.data.code === 200) {
+        ElMessage.success('次序已自动同步保存')
+      }
+    } catch (err) {
+      ElMessage.error('次序保存失败，请刷新重试')
+      await loadNodes(activeDayId.value!)
+    }
+  })()
+}
+
+// const handleDragEnd = async () => {
+//   const orderedIds = nodeList.value.map((item) => item.id)
+//   try {
+//     // 调用昨日编写的批量更新排序接口
+//     const res = await axios.put(`/api/trips/days/${activeDayId.value}/nodes/reorder`, orderedIds)
+//     if (res.data.code === 200) {
+//       ElMessage.success('次序已自动同步保存')
+//     }
+//   } catch (err) {
+//     ElMessage.error('次序保存失败，请刷新重试')
+//     await loadNodes(activeDayId.value!)
+//   }
+// }
+
+// 行程新建弹窗控制
 const openCreateDialog = () => {
   createForm.title = ''
   dateRange.value = null
   createDialogVisible.value = true
 }
 
-// 提交创建
 const handleCreateTrip = async () => {
   if (!createForm.title.trim()) {
     ElMessage.warning('请输入行程名称')
@@ -166,9 +344,9 @@ const handleCreateTrip = async () => {
       startDate: dateRange.value[0],
       endDate: dateRange.value[1]
     }
-    const res = await axios.post('/api/trip-plan', postData)
+    const res = await axios.post('/api/trips', postData)
     if (res.data.code === 200) {
-      ElMessage.success('行程创建成功！自动生成每日日程')
+      ElMessage.success('行程创建成功！')
       createDialogVisible.value = false
       await loadTrips()
       selectTrip(res.data.data.id)
@@ -190,10 +368,10 @@ onMounted(() => {
   display: flex;
   width: 100vw;
   height: 100vh;
-  background: #f1f5f9;
+  background: #f8fafc;
 }
 .sidebar {
-  width: 320px;
+  width: 300px;
   background: #fff;
   border-right: 1px solid #e2e8f0;
   display: flex;
@@ -208,7 +386,7 @@ onMounted(() => {
 }
 .sidebar-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   color: #1e293b;
 }
 .trip-list {
@@ -260,7 +438,7 @@ onMounted(() => {
   overflow-y: auto;
 }
 .detail-header {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .detail-header h2 {
   margin: 0 0 6px 0;
@@ -273,7 +451,7 @@ onMounted(() => {
 .day-tabs {
   background: #fff;
   border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 .day-content {
   padding: 16px;
@@ -282,7 +460,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .day-header h4 {
   margin: 0;
@@ -293,6 +471,59 @@ onMounted(() => {
   border-radius: 8px;
   padding: 40px;
   text-align: center;
+}
+
+/* 拖拽卡片样式 */
+.node-card {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s;
+}
+.node-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+.drag-handle {
+  cursor: grab;
+  color: #94a3b8;
+  font-size: 18px;
+  padding: 0 8px 0 0;
+  user-select: none;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+.order-badge {
+  background: #3b82f6;
+  color: #fff;
+  font-weight: bold;
+  font-size: 12px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 50%;
+  margin-right: 14px;
+}
+.node-info {
+  flex: 1;
+}
+.node-title {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 14px;
+}
+.node-notes {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 3px;
 }
 .empty-detail {
   display: flex;

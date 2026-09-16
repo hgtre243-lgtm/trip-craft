@@ -2,7 +2,7 @@ package com.tripcraft.service.impl;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
+// import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,7 +45,7 @@ public class TripPlanServiceImpl extends ServiceImpl<TripPlanMapper, TripPlan> i
         this.save(plan);
 
         // 3.循环生成每一天都日程记录并批量入库
-        List<TripDay> dayList = new ArrayList<>();
+        // List<TripDay> dayList = new ArrayList<>();
         LocalDate currentDate = plan.getStartDate();
         for (int i = 1; i <= daysBetween; i++) {
             TripDay day = new TripDay();

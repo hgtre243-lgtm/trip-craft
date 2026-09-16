@@ -17,7 +17,7 @@ import com.tripcraft.vo.TripDetailVO;
 import lombok.RequiredArgsConstructor;
 
 @RestController
-@RequestMapping("/api/trip-plan")
+@RequestMapping("/api/trips")
 @RequiredArgsConstructor
 public class TripPlanController {
 

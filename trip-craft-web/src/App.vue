@@ -3,32 +3,32 @@
     <!-- 顶部导航栏 / 模式切换切换器 -->
     <header class="app-header">
       <div class="brand">伴游行 (TripCraft)</div>
-      <el-radio-group v-model="currentView" size="small">
-        <el-radio-button value="map">🗺️ 高德探索打卡</el-radio-button>
-        <el-radio-button value="footprint">🇨🇳 全国足迹大盘</el-radio-button>
-        <el-radio-button value="planner">🧭 行程规划</el-radio-button> <!-- 新增 -->
-      </el-radio-group>
+        <nav class="app-nav">
+        <router-link to="/" class="nav-link">🗺️ 高德探索打卡</router-link>
+        <router-link to="/footprint" class="nav-link">🇨🇳 全国足迹大盘</router-link>
+        <router-link to="/planner" class="nav-link">🧭 行程规划</router-link>
+        </nav>
     </header>
 
     <!-- 视图切换：keep-alive 保证切换时不重复销毁重绘 -->
     <main class="app-main">
-        <MapContainer v-show="currentView === 'map'" />
-        <FootprintBoard v-if="currentView === 'footprint'" />
-        <TripPlanner v-if="currentView === 'planner'" /> <!-- 新增 -->
+        <router-view />
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import MapContainer from './components/MapContainer.vue'
-import FootprintBoard from './components/FootprintBoard.vue'
-import TripPlanner from './components/TripPlanner.vue' // 新增
-
-const currentView = ref<'map' | 'footprint'|'planner'>('map')
 </script>
 
 <style>
+.app-nav { display: flex; gap: 10px; }
+.nav-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 14px; border-radius: 20px;
+  color: #0f172a; text-decoration: none; font-size: 13px;
+}
+.router-link-active.nav-link { background: #409eff; color: #fff; }
+
 html, body, #app, .app-container {
   margin: 0;
   padding: 0;
